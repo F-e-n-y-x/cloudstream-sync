@@ -1,0 +1,9 @@
+# Local database and container state
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Build output
+/cloudstream-sync
+/cloudstream-sync.exe

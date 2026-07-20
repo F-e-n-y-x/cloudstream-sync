@@ -1,0 +1,24 @@
+services:
+  cloudstream-sync:
+    build: .
+    # Or, once published:
+    # image: ghcr.io/f-e-n-y-x/cloudstream-sync:latest
+    container_name: cloudstream-sync
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # The SQLite database. Without this the data is lost when the container is replaced.
+      - ./data:/data
+    environment:
+      SYNC_ADDR: ":8080"
+      SYNC_DB: "/data/cloudstream-sync.db"
+      # Leave off. Turn it on only long enough to create your first account, then set it
+      # back to false and restart: with it on, anyone who can reach this server can sign up.
+      SYNC_OPEN_REGISTRATION: "false"
+    healthcheck:
+      # scratch has no shell or curl, so the check runs the binary's own probe.
+      test: ["CMD", "/cloudstream-sync", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
