@@ -6,12 +6,17 @@ services:
     container_name: cloudstream-sync
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # One place to change the port: SYNC_PORT controls both the host mapping and the
+      # container's own listen address below. Editing only one of the two used to leave the
+      # container listening on a port Docker no longer forwards to (or vice versa), which
+      # looked like the server had stopped responding. Override with e.g. `SYNC_PORT=9090
+      # docker compose up -d`, or a `.env` file next to this one containing `SYNC_PORT=9090`.
+      - "${SYNC_PORT:-8080}:${SYNC_PORT:-8080}"
     volumes:
       # The SQLite database. Without this the data is lost when the container is replaced.
       - ./data:/data
     environment:
-      SYNC_ADDR: ":8080"
+      SYNC_ADDR: ":${SYNC_PORT:-8080}"
       SYNC_DB: "/data/cloudstream-sync.db"
       # Leave off. Turn it on only long enough to create your first account, then set it
       # back to false and restart: with it on, anyone who can reach this server can sign up.

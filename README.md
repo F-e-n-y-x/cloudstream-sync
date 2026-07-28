@@ -1,11 +1,24 @@
 # cloudstream-sync
 
-Self-hosted sync server for CloudStream. Keeps watch history, resume positions, bookmarks,
-repositories and installed extensions in step across a phone, TV, tablet and anything else
-you run the app on.
+CloudStream's self-hosted alternative to syncing through a third-party tracker account
+(AniList, MAL, Simkl, Trakt). Those sync your watch *status* to that service. This syncs your
+device's actual local app data directly between your own devices, through a server you run
+yourself:
 
-Single static Go binary, SQLite storage, one container. No external database, no cloud
-account, no telemetry.
+- Watch history and resume positions
+- Library, bookmarks and subscriptions
+- Search history
+- Repositories (extensions then auto-install from them, matching per-device)
+- A curated set of playback and display settings (picture/audio profile, preferred quality,
+  dub/sub preference, and similar - deliberately not paths, hardware tuning or anything else
+  that is right for one device and wrong for another)
+
+No tracker account, no third party, no telemetry. Single static Go binary, SQLite storage,
+one container - point it at your own server address from CloudStream's Settings and pair
+your other devices to it.
+
+Each category can be turned on or off per device, so a TV that should not carry your phone's
+search history, or a tablet that only wants watch history, is one toggle away.
 
 ## Design
 
@@ -67,6 +80,20 @@ go build -o cloudstream-sync ./cmd/server
 | `-db` | `SYNC_DB` | `/data/cloudstream-sync.db` | SQLite database path |
 | `-open-registration` | `SYNC_OPEN_REGISTRATION` | `false` | Allow account creation |
 | `-healthcheck` | — | — | Probe a running server, exit 0 if healthy |
+
+With Docker, change the port with a single `SYNC_PORT` variable rather than editing `-addr`/
+`SYNC_ADDR` and the `ports:` mapping separately - `docker-compose.yml` derives both from it, so
+they cannot drift apart and leave the container listening on a port Docker no longer forwards:
+
+```bash
+SYNC_PORT=9090 docker compose up -d
+```
+
+or in a `.env` file next to `docker-compose.yml`:
+
+```
+SYNC_PORT=9090
+```
 
 ### Put it behind TLS
 
