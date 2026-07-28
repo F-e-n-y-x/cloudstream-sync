@@ -221,6 +221,84 @@ func TestDeviceListAndRevocation(t *testing.T) {
 	}
 }
 
+func TestSetupKeyEndToEnd(t *testing.T) {
+	srv, _ := newTestServer(t, true)
+	_, phoneToken := createAccount(t, srv)
+
+	resp, body := do(t, http.MethodPost, srv.URL+"/api/v1/pair/setup-key", phoneToken, map[string]string{
+		"key": "a-long-enough-key",
+	})
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("set setup key: %d %v", resp.StatusCode, body)
+	}
+
+	resp, body = do(t, http.MethodPost, srv.URL+"/api/v1/pair/setup-key/redeem", "", map[string]string{
+		"key":        "a-long-enough-key",
+		"deviceName": "TV",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("redeem setup key: %d %v", resp.StatusCode, body)
+	}
+
+	// Not single-use: redeeming again for a second device must still work.
+	resp, body = do(t, http.MethodPost, srv.URL+"/api/v1/pair/setup-key/redeem", "", map[string]string{
+		"key":        "a-long-enough-key",
+		"deviceName": "Tablet",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("redeem setup key a second time: %d %v", resp.StatusCode, body)
+	}
+
+	resp, body = do(t, http.MethodGet, srv.URL+"/api/v1/devices", phoneToken, nil)
+	if devices, ok := body["devices"].([]any); !ok || len(devices) != 3 {
+		t.Fatalf("expected phone + TV + tablet, got %d %v", resp.StatusCode, body)
+	}
+}
+
+func TestSetupKeyRequiresMinLength(t *testing.T) {
+	srv, _ := newTestServer(t, true)
+	_, phoneToken := createAccount(t, srv)
+
+	resp, _ := do(t, http.MethodPost, srv.URL+"/api/v1/pair/setup-key", phoneToken, map[string]string{
+		"key": "short",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected a short key to be rejected, got %d", resp.StatusCode)
+	}
+}
+
+func TestClearSetupKeyOverHTTP(t *testing.T) {
+	srv, _ := newTestServer(t, true)
+	_, phoneToken := createAccount(t, srv)
+
+	do(t, http.MethodPost, srv.URL+"/api/v1/pair/setup-key", phoneToken, map[string]string{
+		"key": "a-long-enough-key",
+	})
+
+	resp, _ := do(t, http.MethodDelete, srv.URL+"/api/v1/pair/setup-key", phoneToken, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("clear setup key: %d", resp.StatusCode)
+	}
+
+	resp, _ = do(t, http.MethodPost, srv.URL+"/api/v1/pair/setup-key/redeem", "", map[string]string{
+		"key":        "a-long-enough-key",
+		"deviceName": "TV",
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected the cleared key to be rejected, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetupKeyRequiresAuthToSet(t *testing.T) {
+	srv, _ := newTestServer(t, true)
+	resp, _ := do(t, http.MethodPost, srv.URL+"/api/v1/pair/setup-key", "", map[string]string{
+		"key": "a-long-enough-key",
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected setting a key without auth to be rejected, got %d", resp.StatusCode)
+	}
+}
+
 func TestInvalidPairCodeRejected(t *testing.T) {
 	srv, _ := newTestServer(t, true)
 	resp, _ := do(t, http.MethodPost, srv.URL+"/api/v1/pair/redeem", "",

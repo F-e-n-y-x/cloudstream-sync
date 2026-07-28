@@ -9,6 +9,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -47,9 +48,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("POST /api/v1/account", s.handleCreateAccount)
 	mux.HandleFunc("POST /api/v1/pair/redeem", s.handleRedeemPair)
+	mux.HandleFunc("POST /api/v1/pair/setup-key/redeem", s.handleRedeemSetupKey)
 
 	// Authenticated.
 	mux.Handle("POST /api/v1/pair", s.authenticated(s.handleCreatePair))
+	mux.Handle("POST /api/v1/pair/setup-key", s.authenticated(s.handleSetSetupKey))
+	mux.Handle("DELETE /api/v1/pair/setup-key", s.authenticated(s.handleClearSetupKey))
 	mux.Handle("GET /api/v1/devices", s.authenticated(s.handleListDevices))
 	mux.Handle("DELETE /api/v1/devices/{id}", s.authenticated(s.handleRemoveDevice))
 	mux.Handle("GET /api/v1/records", s.authenticated(s.handleGetRecords))
@@ -210,6 +214,68 @@ func (s *Server) handleRedeemPair(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log.Error("redeem pair code", "err", err)
 		writeError(w, http.StatusInternalServerError, "could not redeem pairing code")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, credentialsResponse{
+		AccountID:  device.AccountID,
+		DeviceID:   device.ID,
+		DeviceName: device.Name,
+		Token:      token,
+	})
+}
+
+type setupKeyRequest struct {
+	Key string `json:"key"`
+}
+
+func (s *Server) handleSetSetupKey(w http.ResponseWriter, r *http.Request, device store.Device) {
+	var req setupKeyRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if len(req.Key) < store.MinSetupKeyLength {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("key must be at least %d characters", store.MinSetupKeyLength))
+		return
+	}
+
+	if err := s.store.SetSetupKey(r.Context(), device.AccountID, req.Key); err != nil {
+		s.log.Error("set setup key", "err", err)
+		writeError(w, http.StatusInternalServerError, "could not set pairing key")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleClearSetupKey(w http.ResponseWriter, r *http.Request, device store.Device) {
+	if err := s.store.ClearSetupKey(r.Context(), device.AccountID); err != nil {
+		s.log.Error("clear setup key", "err", err)
+		writeError(w, http.StatusInternalServerError, "could not clear pairing key")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type redeemSetupKeyRequest struct {
+	Key        string `json:"key"`
+	DeviceName string `json:"deviceName"`
+}
+
+func (s *Server) handleRedeemSetupKey(w http.ResponseWriter, r *http.Request) {
+	var req redeemSetupKeyRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	device, token, err := s.store.RedeemSetupKey(r.Context(), req.Key, req.DeviceName)
+	if errors.Is(err, store.ErrSetupKeyInvalid) {
+		writeError(w, http.StatusUnauthorized, "pairing key is invalid")
+		return
+	}
+	if err != nil {
+		s.log.Error("redeem setup key", "err", err)
+		writeError(w, http.StatusInternalServerError, "could not redeem pairing key")
 		return
 	}
 

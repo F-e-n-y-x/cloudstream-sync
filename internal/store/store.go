@@ -25,7 +25,14 @@ var (
 	// ErrPairCodeInvalid covers unknown, expired and already-redeemed codes alike, so a
 	// caller cannot probe for which codes exist.
 	ErrPairCodeInvalid = errors.New("pairing code is invalid or has expired")
+	// ErrSetupKeyInvalid covers an unknown key or one that was never set, so a caller cannot
+	// probe for which accounts have one.
+	ErrSetupKeyInvalid = errors.New("pairing key is invalid")
 )
+
+// MinSetupKeyLength is enforced when a key is set, not when it is redeemed: rejecting a short
+// key later would just leak that a longer one exists somewhere.
+const MinSetupKeyLength = 8
 
 // Store owns the database handle.
 type Store struct {
@@ -70,8 +77,19 @@ CREATE TABLE IF NOT EXISTS accounts (
     -- Monotonic per-account counter handed out to records, so a device can ask for
     -- "everything after seq N" without relying on wall-clock time being consistent
     -- across devices.
-    seq        INTEGER NOT NULL DEFAULT 0
+    seq        INTEGER NOT NULL DEFAULT 0,
+    -- A persistent, user-chosen alternative to a pairing code: unlike one, it is not
+    -- single-use or time-limited, so it works for adding devices whenever needed without the
+    -- account's first device having to be online to issue a fresh code each time. Only the
+    -- hash is stored, same reasoning as token_hash below. NULL means none is set.
+    setup_key_hash TEXT
 );
+
+-- Enforces one account per key without preventing multiple accounts from having no key set:
+-- a plain UNIQUE constraint on a nullable column would only ever allow one NULL row in older
+-- SQLite versions, but a partial index is unambiguous about excluding NULLs entirely.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_setup_key
+    ON accounts(setup_key_hash) WHERE setup_key_hash IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS devices (
     id         TEXT PRIMARY KEY,
@@ -120,10 +138,56 @@ func Open(path string) (*Store, error) {
 	// so the writer is serialised here instead.
 	db.SetMaxOpenConns(1)
 
+	// CREATE TABLE IF NOT EXISTS does not add columns to a table that already exists, so a
+	// database from before setup_key_hash existed needs it added explicitly before the index
+	// on it (in schema below) can be created.
+	if err := addSetupKeyColumnIfMissing(db); err != nil {
+		return nil, fmt.Errorf("migrate schema: %w", err)
+	}
+
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 	return &Store{db: db}, nil
+}
+
+func addSetupKeyColumnIfMissing(db *sql.DB) error {
+	// PRAGMA table_info on a table that does not exist yet returns zero rows rather than an
+	// error, so tableExists tracks that case explicitly: a brand new database has no accounts
+	// table at all, and schema below creates one with the column already in place, so there
+	// is nothing to migrate.
+	rows, err := db.Query(`PRAGMA table_info(accounts)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	tableExists := false
+	hasColumn := false
+	for rows.Next() {
+		tableExists = true
+		var (
+			cid, notNull, pk int
+			name, colType    string
+			dfltValue        sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return err
+		}
+		if name == "setup_key_hash" {
+			hasColumn = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if !tableExists || hasColumn {
+		return nil
+	}
+
+	_, err = db.Exec(`ALTER TABLE accounts ADD COLUMN setup_key_hash TEXT`)
+	return err
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -335,6 +399,50 @@ func (s *Store) RedeemPairCode(ctx context.Context, code, deviceName string) (De
 		return Device{}, "", err
 	}
 	return device, token, nil
+}
+
+// SetSetupKey sets or replaces the account's persistent pairing key. Overwriting an existing
+// key immediately invalidates it, since only the hash of the newest one is kept - there is no
+// way to have two valid keys at once.
+func (s *Store) SetSetupKey(ctx context.Context, accountID, key string) error {
+	if len(key) < MinSetupKeyLength {
+		return fmt.Errorf("setup key must be at least %d characters", MinSetupKeyLength)
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE accounts SET setup_key_hash = ? WHERE id = ?`, hashToken(key), accountID)
+	if err != nil {
+		return fmt.Errorf("set setup key: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ClearSetupKey disables the account's persistent pairing key. Existing devices are
+// unaffected; only future redemptions of the key stop working.
+func (s *Store) ClearSetupKey(ctx context.Context, accountID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE accounts SET setup_key_hash = NULL WHERE id = ?`, accountID)
+	return err
+}
+
+// RedeemSetupKey creates a new device on whichever account the key belongs to.
+//
+// Unlike a pairing code, redeeming does not consume the key: it keeps working, for any number
+// of devices, until the account holder changes or clears it. That is the point of it over a
+// code - joining a device does not require the first device to be online to issue one.
+func (s *Store) RedeemSetupKey(ctx context.Context, key, deviceName string) (Device, string, error) {
+	var accountID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM accounts WHERE setup_key_hash = ?`, hashToken(key)).Scan(&accountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Device{}, "", ErrSetupKeyInvalid
+	}
+	if err != nil {
+		return Device{}, "", err
+	}
+	return s.AddDevice(ctx, accountID, deviceName)
 }
 
 // PurgeExpiredPairCodes drops codes that can no longer be redeemed.

@@ -335,6 +335,133 @@ func TestRemoveDeviceRevokesToken(t *testing.T) {
 	}
 }
 
+// The core guarantee of a setup key over a pairing code: it is not consumed by use, so any
+// number of devices can join with it.
+func TestSetupKeyIsNotSingleUse(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	accountID, _, _, err := st.CreateAccount(ctx, "Phone")
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	if err := st.SetSetupKey(ctx, accountID, "correct horse battery"); err != nil {
+		t.Fatalf("set setup key: %v", err)
+	}
+
+	tv, _, err := st.RedeemSetupKey(ctx, "correct horse battery", "TV")
+	if err != nil {
+		t.Fatalf("redeem for TV: %v", err)
+	}
+	if tv.AccountID != accountID {
+		t.Fatalf("TV joined the wrong account: %s", tv.AccountID)
+	}
+
+	// Redeeming again with the same key must still work.
+	tablet, _, err := st.RedeemSetupKey(ctx, "correct horse battery", "Tablet")
+	if err != nil {
+		t.Fatalf("redeem for Tablet: %v", err)
+	}
+	if tablet.AccountID != accountID {
+		t.Fatalf("Tablet joined the wrong account: %s", tablet.AccountID)
+	}
+}
+
+func TestSetupKeyRejectsShortKeys(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	accountID, _, _, err := st.CreateAccount(ctx, "Phone")
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	if err := st.SetSetupKey(ctx, accountID, "short"); err == nil {
+		t.Fatal("expected a key shorter than MinSetupKeyLength to be rejected")
+	}
+}
+
+// Setting a new key must invalidate the old one - there is only ever one valid key.
+func TestSetupKeyChangeInvalidatesThePrevious(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	accountID, _, _, err := st.CreateAccount(ctx, "Phone")
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	if err := st.SetSetupKey(ctx, accountID, "first-key-value"); err != nil {
+		t.Fatalf("set first key: %v", err)
+	}
+	if err := st.SetSetupKey(ctx, accountID, "second-key-value"); err != nil {
+		t.Fatalf("set second key: %v", err)
+	}
+
+	if _, _, err := st.RedeemSetupKey(ctx, "first-key-value", "TV"); err != ErrSetupKeyInvalid {
+		t.Fatalf("expected the replaced key to be rejected, got %v", err)
+	}
+	if _, _, err := st.RedeemSetupKey(ctx, "second-key-value", "TV"); err != nil {
+		t.Fatalf("expected the new key to work, got %v", err)
+	}
+}
+
+func TestClearSetupKeyDisablesRedemption(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	accountID, _, _, err := st.CreateAccount(ctx, "Phone")
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	if err := st.SetSetupKey(ctx, accountID, "a-perfectly-good-key"); err != nil {
+		t.Fatalf("set setup key: %v", err)
+	}
+	if err := st.ClearSetupKey(ctx, accountID); err != nil {
+		t.Fatalf("clear setup key: %v", err)
+	}
+
+	if _, _, err := st.RedeemSetupKey(ctx, "a-perfectly-good-key", "TV"); err != ErrSetupKeyInvalid {
+		t.Fatalf("expected a cleared key to be rejected, got %v", err)
+	}
+}
+
+func TestRedeemUnknownSetupKeyRejected(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	if _, _, err := st.RedeemSetupKey(ctx, "never-set-by-anyone", "TV"); err != ErrSetupKeyInvalid {
+		t.Fatalf("expected an unknown key to be rejected, got %v", err)
+	}
+}
+
+// Two accounts each setting their own key must not collide or leak into each other.
+func TestSetupKeyIsScopedToItsAccount(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	accountA, _, _, err := st.CreateAccount(ctx, "A-Phone")
+	if err != nil {
+		t.Fatalf("create account A: %v", err)
+	}
+	accountB, _, _, err := st.CreateAccount(ctx, "B-Phone")
+	if err != nil {
+		t.Fatalf("create account B: %v", err)
+	}
+	if err := st.SetSetupKey(ctx, accountA, "account-a-key-value"); err != nil {
+		t.Fatalf("set key A: %v", err)
+	}
+	if err := st.SetSetupKey(ctx, accountB, "account-b-key-value"); err != nil {
+		t.Fatalf("set key B: %v", err)
+	}
+
+	device, _, err := st.RedeemSetupKey(ctx, "account-b-key-value", "New Device")
+	if err != nil {
+		t.Fatalf("redeem key B: %v", err)
+	}
+	if device.AccountID != accountB {
+		t.Fatalf("key B joined the wrong account: %s", device.AccountID)
+	}
+}
+
 // A token from one account must not be able to touch another account's devices.
 func TestRemoveDeviceIsScopedToAccount(t *testing.T) {
 	ctx := context.Background()
