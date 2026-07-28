@@ -103,12 +103,25 @@ reach it over a private network such as Tailscale or WireGuard.
 
 ## Pairing a second device
 
-1. On a device that is already signed in, ask for a code: `POST /api/v1/pair`
-2. Enter that code on the new device: `POST /api/v1/pair/redeem`
+Two ways in, pick whichever suits the moment:
+
+**A one-time code** - the account's first device needs to be online to issue one:
+1. Ask for a code: `POST /api/v1/pair`
+2. Enter it on the new device: `POST /api/v1/pair/redeem`
 
 Codes are eight characters from an alphabet with no `I`, `O`, `0` or `1`, so they survive
 being read off a TV screen. They last ten minutes and are single use — short and typeable
 means guessable, and those two limits are what make that acceptable.
+
+**A persistent pairing key** - set once, works whenever, no device needs to be online:
+1. Set it from an already-signed-in device: `POST /api/v1/pair/setup-key`
+2. Any device can join with it, any time: `POST /api/v1/pair/setup-key/redeem`
+
+Unlike a code, redeeming a key does not consume it - it keeps working until you change or
+clear it (`DELETE /api/v1/pair/setup-key`). That persistence is also the tradeoff: choose
+something you would not mind functioning as a second password to your account, at least 8
+characters, and treat changing it as how you revoke access once every device that should
+have it does.
 
 ## API
 
@@ -118,8 +131,11 @@ All authenticated endpoints take `Authorization: Bearer <token>`.
 |---|---|---|---|
 | `GET` | `/healthz` | no | Liveness |
 | `POST` | `/api/v1/account` | no | Create an account and its first device |
-| `POST` | `/api/v1/pair` | yes | Issue a pairing code |
-| `POST` | `/api/v1/pair/redeem` | no | Redeem a code, returns a token |
+| `POST` | `/api/v1/pair` | yes | Issue a one-time pairing code |
+| `POST` | `/api/v1/pair/redeem` | no | Redeem a pairing code, returns a token |
+| `POST` | `/api/v1/pair/setup-key` | yes | Set/replace the persistent pairing key |
+| `DELETE` | `/api/v1/pair/setup-key` | yes | Clear the persistent pairing key |
+| `POST` | `/api/v1/pair/setup-key/redeem` | no | Join using the persistent pairing key |
 | `GET` | `/api/v1/status` | yes | Account, device and current cursor |
 | `GET` | `/api/v1/devices` | yes | List devices on the account |
 | `DELETE` | `/api/v1/devices/{id}` | yes | Revoke a device |
