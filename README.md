@@ -67,13 +67,20 @@ Every other device joins by pairing, not by registering.
 
 ### With Portainer
 
-`portainer-stack.yml` is the same service as `docker-compose.yml`, with a named volume in
-place of the `./data` bind mount - Portainer's web editor has no repository checkout to
-resolve a relative path against, so a named volume is the version that works pasted in
-directly. In Portainer: **Stacks → Add stack**, paste the contents of `portainer-stack.yml`
-(or point it at this repository and that file, if deploying from a Git repo), then deploy.
-Set `SYNC_OPEN_REGISTRATION` the same way described above, through the stack's environment
-variables, to create the first account.
+`portainer-stack.yml` is the same service as `docker-compose.yml`, with two differences.
+A named volume stands in for the `./data` bind mount, since Portainer's web editor has no
+repository checkout to resolve a relative path against. And the port is a plain `9909`
+rather than a `${SYNC_PORT:-9909}`-style variable: Portainer's variable substitution has
+been seen to silently corrupt a value that starts with a bare colon (`SYNC_ADDR: ":9909"`
+came back as `SYNC_ADDR: "9909"` - the server then fails to start, since that is not a
+valid listen address) and to drop one of two otherwise identical-looking `ports:` lines.
+To use a different port here, edit the literal `9909` directly in the three places it
+appears in the file, rather than reintroducing a variable.
+
+In Portainer: **Stacks → Add stack**, paste the contents of `portainer-stack.yml` (or point
+it at this repository and that file, if deploying from a Git repo), then deploy. Toggle
+`SYNC_OPEN_REGISTRATION` to `"true"` in the stack's environment variables just long enough
+to create the first account (see above), then back to `"false"` and redeploy.
 
 ### Without Docker
 

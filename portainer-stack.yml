@@ -6,16 +6,18 @@ services:
     container_name: cloudstream-sync
     restart: unless-stopped
     ports:
-      # One place to change the port: SYNC_PORT controls the host mapping and the
-      # container's own listen address below, for both protocols. Set it as a stack
-      # environment variable in Portainer rather than editing this file, so it survives a
-      # redeploy from the same stack definition.
+      # Hardcoded rather than driven by a ${SYNC_PORT:-9909}-style variable: Portainer's own
+      # variable substitution does not reliably survive a value that starts with a bare
+      # colon (SYNC_ADDR below) and has been seen to silently drop one of two otherwise
+      # identical-looking port lines - both bit this file when it relied on that. To use a
+      # different port, change the literal 9909 in all three places it appears below
+      # (these two lines and SYNC_ADDR) rather than introducing a variable back in.
       #
       # Both protocols on the same port number is deliberate, not two unrelated services:
       # TCP carries the HTTP API, UDP carries the LAN discovery broadcast the app sends to
       # find this server without the user typing an IP (cmd/server/discovery.go).
-      - "${SYNC_PORT:-9909}:${SYNC_PORT:-9909}"
-      - "${SYNC_PORT:-9909}:${SYNC_PORT:-9909}/udp"
+      - "9909:9909"
+      - "9909:9909/udp"
     volumes:
       # A named volume rather than docker-compose.yml's ./data bind mount: Portainer's web
       # editor has no repository checkout to resolve a relative host path against, so this
@@ -23,7 +25,7 @@ services:
       # way - the data survives replacing the container, not just restarting it.
       - cloudstream_sync_data:/data
     environment:
-      SYNC_ADDR: ":${SYNC_PORT:-9909}"
+      SYNC_ADDR: ":9909"
       SYNC_DB: "/data/cloudstream-sync.db"
       # Leave off. Turn it on only long enough to create your first account, then set it
       # back to false and redeploy the stack: with it on, anyone who can reach this server
