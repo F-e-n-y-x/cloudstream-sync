@@ -416,13 +416,17 @@ func (s *Store) GetPresence(ctx context.Context, accountID, excludeDeviceID stri
 //
 // Codes are short enough to read off a TV screen and type on a phone, which means they are
 // guessable by brute force; the short lifetime and single use are what make that acceptable.
+// Four characters matches the persistent setup key's own minimum length - both are meant to be
+// typed once on a second device, not memorised, so there is no reason for one to be harder to
+// get right than the other.
 func (s *Store) CreatePairCode(ctx context.Context, accountID string, ttl time.Duration) (string, time.Time, error) {
 	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no I/O/0/1, which are misread
-	buf := make([]byte, 8)
+	const codeLength = 4
+	buf := make([]byte, codeLength)
 	if _, err := rand.Read(buf); err != nil {
 		return "", time.Time{}, err
 	}
-	code := make([]byte, 8)
+	code := make([]byte, codeLength)
 	for i, b := range buf {
 		code[i] = alphabet[int(b)%len(alphabet)]
 	}

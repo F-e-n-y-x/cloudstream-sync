@@ -148,9 +148,10 @@ Two ways in, pick whichever suits the moment:
 1. Ask for a code: `POST /api/v1/pair`
 2. Enter it on the new device: `POST /api/v1/pair/redeem`
 
-Codes are eight characters from an alphabet with no `I`, `O`, `0` or `1`, so they survive
-being read off a TV screen. They last ten minutes and are single use — short and typeable
-means guessable, and those two limits are what make that acceptable.
+Codes are four characters from an alphabet with no `I`, `O`, `0` or `1`, so they survive
+being read off a TV screen and typed on a phone without much room for a transcription error.
+They last ten minutes and are single use — short and typeable means guessable, and those two
+limits are what make that acceptable.
 
 **A persistent pairing key** - set once, works whenever, no device needs to be online:
 1. Set it from an already-signed-in device: `POST /api/v1/pair/setup-key`
