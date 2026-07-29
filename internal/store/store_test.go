@@ -375,7 +375,7 @@ func TestSetupKeyRejectsShortKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create account: %v", err)
 	}
-	if err := st.SetSetupKey(ctx, accountID, "short"); err == nil {
+	if err := st.SetSetupKey(ctx, accountID, "abc"); err == nil {
 		t.Fatal("expected a key shorter than MinSetupKeyLength to be rejected")
 	}
 }

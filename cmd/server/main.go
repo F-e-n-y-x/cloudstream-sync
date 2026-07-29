@@ -21,7 +21,7 @@ import (
 
 func main() {
 	var (
-		addr             = flag.String("addr", envOr("SYNC_ADDR", ":8080"), "listen address")
+		addr             = flag.String("addr", envOr("SYNC_ADDR", ":9909"), "listen address")
 		dbPath           = flag.String("db", envOr("SYNC_DB", "/data/cloudstream-sync.db"), "path to the SQLite database")
 		openRegistration = flag.Bool("open-registration", envBool("SYNC_OPEN_REGISTRATION", false),
 			"allow anyone who can reach the server to create an account")
@@ -71,6 +71,7 @@ func main() {
 	defer stop()
 
 	go purgeExpiredCodes(ctx, st, log)
+	go runDiscoveryResponder(ctx, *addr, log)
 
 	go func() {
 		log.Info("listening", "addr", *addr, "db", *dbPath)

@@ -260,7 +260,7 @@ func TestSetupKeyRequiresMinLength(t *testing.T) {
 	_, phoneToken := createAccount(t, srv)
 
 	resp, _ := do(t, http.MethodPost, srv.URL+"/api/v1/pair/setup-key", phoneToken, map[string]string{
-		"key": "short",
+		"key": "abc",
 	})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected a short key to be rejected, got %d", resp.StatusCode)

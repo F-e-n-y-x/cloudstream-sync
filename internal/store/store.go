@@ -32,7 +32,7 @@ var (
 
 // MinSetupKeyLength is enforced when a key is set, not when it is redeemed: rejecting a short
 // key later would just leak that a longer one exists somewhere.
-const MinSetupKeyLength = 8
+const MinSetupKeyLength = 4
 
 // Store owns the database handle.
 type Store struct {

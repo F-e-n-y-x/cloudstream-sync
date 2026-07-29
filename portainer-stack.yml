@@ -7,11 +7,9 @@ services:
     restart: unless-stopped
     ports:
       # One place to change the port: SYNC_PORT controls the host mapping and the
-      # container's own listen address below, for both protocols. Editing only one of the
-      # two used to leave the container listening on a port Docker no longer forwards to
-      # (or vice versa), which looked like the server had stopped responding. Override with
-      # e.g. `SYNC_PORT=9090 docker compose up -d`, or a `.env` file next to this one
-      # containing `SYNC_PORT=9090`.
+      # container's own listen address below, for both protocols. Set it as a stack
+      # environment variable in Portainer rather than editing this file, so it survives a
+      # redeploy from the same stack definition.
       #
       # Both protocols on the same port number is deliberate, not two unrelated services:
       # TCP carries the HTTP API, UDP carries the LAN discovery broadcast the app sends to
@@ -19,13 +17,17 @@ services:
       - "${SYNC_PORT:-9909}:${SYNC_PORT:-9909}"
       - "${SYNC_PORT:-9909}:${SYNC_PORT:-9909}/udp"
     volumes:
-      # The SQLite database. Without this the data is lost when the container is replaced.
-      - ./data:/data
+      # A named volume rather than docker-compose.yml's ./data bind mount: Portainer's web
+      # editor has no repository checkout to resolve a relative host path against, so this
+      # is the version of the stack that works pasted in directly. Same durability either
+      # way - the data survives replacing the container, not just restarting it.
+      - cloudstream_sync_data:/data
     environment:
       SYNC_ADDR: ":${SYNC_PORT:-9909}"
       SYNC_DB: "/data/cloudstream-sync.db"
       # Leave off. Turn it on only long enough to create your first account, then set it
-      # back to false and restart: with it on, anyone who can reach this server can sign up.
+      # back to false and redeploy the stack: with it on, anyone who can reach this server
+      # can sign up.
       SYNC_OPEN_REGISTRATION: "false"
     healthcheck:
       # scratch has no shell or curl, so the check runs the binary's own probe.
@@ -33,3 +35,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+volumes:
+  cloudstream_sync_data:

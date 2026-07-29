@@ -30,9 +30,13 @@ USER 65532:65532
 # The database lives here; mount a volume or the data disappears with the container.
 VOLUME ["/data"]
 
-EXPOSE 8080
+# TCP for the HTTP API, UDP for LAN discovery (see cmd/server/discovery.go) - the app
+# broadcasts a probe on this same port number to find the server without the user typing
+# an IP address.
+EXPOSE 9909
+EXPOSE 9909/udp
 
-ENV SYNC_ADDR=":8080" \
+ENV SYNC_ADDR=":9909" \
     SYNC_DB="/data/cloudstream-sync.db"
 
 ENTRYPOINT ["/cloudstream-sync"]

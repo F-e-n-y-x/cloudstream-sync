@@ -55,7 +55,7 @@ finds the URL cannot use your server as free storage. Open it just long enough t
 ```bash
 # in docker-compose.yml set SYNC_OPEN_REGISTRATION: "true", then
 docker compose up -d
-curl -X POST http://localhost:8080/api/v1/account \
+curl -X POST http://localhost:9909/api/v1/account \
      -H 'Content-Type: application/json' \
      -d '{"deviceName":"Phone"}'
 ```
@@ -65,18 +65,28 @@ Save the `token` from the response — it is shown once and only its hash is sto
 
 Every other device joins by pairing, not by registering.
 
+### With Portainer
+
+`portainer-stack.yml` is the same service as `docker-compose.yml`, with a named volume in
+place of the `./data` bind mount - Portainer's web editor has no repository checkout to
+resolve a relative path against, so a named volume is the version that works pasted in
+directly. In Portainer: **Stacks → Add stack**, paste the contents of `portainer-stack.yml`
+(or point it at this repository and that file, if deploying from a Git repo), then deploy.
+Set `SYNC_OPEN_REGISTRATION` the same way described above, through the stack's environment
+variables, to create the first account.
+
 ### Without Docker
 
 ```bash
 go build -o cloudstream-sync ./cmd/server
-./cloudstream-sync -db ./sync.db -addr :8080
+./cloudstream-sync -db ./sync.db -addr :9909
 ```
 
 ### Configuration
 
 | Flag | Environment | Default | Meaning |
 |---|---|---|---|
-| `-addr` | `SYNC_ADDR` | `:8080` | Listen address |
+| `-addr` | `SYNC_ADDR` | `:9909` | Listen address (TCP for the API, UDP for discovery) |
 | `-db` | `SYNC_DB` | `/data/cloudstream-sync.db` | SQLite database path |
 | `-open-registration` | `SYNC_OPEN_REGISTRATION` | `false` | Allow account creation |
 | `-healthcheck` | — | — | Probe a running server, exit 0 if healthy |
@@ -86,14 +96,29 @@ With Docker, change the port with a single `SYNC_PORT` variable rather than edit
 they cannot drift apart and leave the container listening on a port Docker no longer forwards:
 
 ```bash
-SYNC_PORT=9090 docker compose up -d
+SYNC_PORT=7000 docker compose up -d
 ```
 
 or in a `.env` file next to `docker-compose.yml`:
 
 ```
-SYNC_PORT=9090
+SYNC_PORT=7000
 ```
+
+Changing it moves discovery (below) to the new port too, since both listen on the same one.
+
+## Auto-detect on the local network
+
+The app can find a server on the same LAN instead of the user typing an IP address: it
+broadcasts a UDP packet containing the exact bytes `CLOUDSTREAM_SYNC_DISCOVER_V1` to the
+subnet's broadcast address on port 9909 (or whatever `SYNC_PORT` was changed to), and this
+server replies directly to the sender with `CLOUDSTREAM_SYNC_V1 <port>`.
+
+This runs unauthenticated, deliberately - the same trust boundary as `/healthz`. A reply
+only reveals that a cloudstream-sync server exists at that address; it carries no account
+or device information, and redeeming a pairing code or key is still required to actually
+join one. Docker needs the UDP port forwarded for this to work across a container boundary,
+which both `docker-compose.yml` and `portainer-stack.yml` already do.
 
 ### Put it behind TLS
 
@@ -119,9 +144,9 @@ means guessable, and those two limits are what make that acceptable.
 
 Unlike a code, redeeming a key does not consume it - it keeps working until you change or
 clear it (`DELETE /api/v1/pair/setup-key`). That persistence is also the tradeoff: choose
-something you would not mind functioning as a second password to your account, at least 8
-characters, and treat changing it as how you revoke access once every device that should
-have it does.
+something you would not mind functioning as a second password to your account (at least 4
+characters is enforced, but longer is safer given it never expires), and treat changing it
+as how you revoke access once every device that should have it does.
 
 ## API
 
@@ -213,7 +238,7 @@ behaviour everything else depends on.
 ## Layout
 
 ```
-cmd/server        entry point, flags, graceful shutdown, healthcheck probe
+cmd/server        entry point, flags, graceful shutdown, healthcheck probe, LAN discovery
 internal/api      HTTP handlers, auth middleware, routing
 internal/store    SQLite schema, merge logic, pairing
 ```
