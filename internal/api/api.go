@@ -59,7 +59,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/v1/records", s.authenticated(s.handleGetRecords))
 	mux.Handle("POST /api/v1/records", s.authenticated(s.handlePutRecords))
 	mux.Handle("GET /api/v1/status", s.authenticated(s.handleStatus))
-	mux.Handle("PUT /api/v1/presence", s.authenticated(s.handleSetPresence))
+	mux.Handle("POST /api/v1/presence", s.authenticated(s.handleSetPresence))
 	mux.Handle("DELETE /api/v1/presence", s.authenticated(s.handleClearPresence))
 	mux.Handle("GET /api/v1/presence", s.authenticated(s.handleGetPresence))
 

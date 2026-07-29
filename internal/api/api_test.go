@@ -309,7 +309,7 @@ func TestPresenceEndToEnd(t *testing.T) {
 		map[string]string{"code": code, "deviceName": "TV"})
 	tvToken := body["token"].(string)
 
-	resp, _ = do(t, http.MethodPut, srv.URL+"/api/v1/presence", phoneToken, map[string]string{
+	resp, _ = do(t, http.MethodPost, srv.URL+"/api/v1/presence", phoneToken, map[string]string{
 		"status": `{"title":"Show","playing":true}`,
 	})
 	if resp.StatusCode != http.StatusNoContent {
@@ -345,7 +345,7 @@ func TestPresenceEndToEnd(t *testing.T) {
 func TestPresenceRequiresAuth(t *testing.T) {
 	srv, _ := newTestServer(t, true)
 
-	resp, _ := do(t, http.MethodPut, srv.URL+"/api/v1/presence", "", map[string]string{"status": "x"})
+	resp, _ := do(t, http.MethodPost, srv.URL+"/api/v1/presence", "", map[string]string{"status": "x"})
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected setting presence without auth to be rejected, got %d", resp.StatusCode)
 	}

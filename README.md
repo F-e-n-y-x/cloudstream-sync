@@ -162,6 +162,25 @@ something you would not mind functioning as a second password to your account (a
 characters is enforced, but longer is safer given it never expires), and treat changing it
 as how you revoke access once every device that should have it does.
 
+## Live presence
+
+Separate from record syncing, devices can report a short-lived "what am I doing right now"
+status so the rest of your account can see it - for example, "Playing Some Show S01E02" while
+a video is open on another device. This is a live indicator only: no remote control, no
+handoff of playback state, just visibility.
+
+- `POST /api/v1/presence` (authenticated, body `{"status": "..."}`) - set or replace this
+  device's current status.
+- `DELETE /api/v1/presence` (authenticated) - clear it, e.g. when playback stops.
+- `GET /api/v1/presence` (authenticated) - list what every other device on the account is
+  doing, excluding the caller's own device.
+
+Status entries expire on their own: anything older than 90 seconds is left out of `GET`
+results, so a device that stops reporting (closed app, lost network, crash) disappears from
+other devices' view shortly after rather than sticking around stale. There is no need to call
+`DELETE` for correctness, only to clear the status promptly instead of waiting out the
+freshness window.
+
 ## API
 
 All authenticated endpoints take `Authorization: Bearer <token>`.
@@ -180,6 +199,9 @@ All authenticated endpoints take `Authorization: Bearer <token>`.
 | `DELETE` | `/api/v1/devices/{id}` | yes | Revoke a device |
 | `GET` | `/api/v1/records` | yes | Pull changes |
 | `POST` | `/api/v1/records` | yes | Push changes |
+| `POST` | `/api/v1/presence` | yes | Set this device's live status |
+| `DELETE` | `/api/v1/presence` | yes | Clear this device's live status |
+| `GET` | `/api/v1/presence` | yes | See other devices' live status |
 
 ### Pulling changes
 
