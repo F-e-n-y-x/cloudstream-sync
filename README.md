@@ -49,6 +49,13 @@ was offline would resurrect what another device removed.
 docker compose up -d
 ```
 
+This pulls `ghcr.io/f-e-n-y-x/cloudstream-sync:latest`, published automatically on every
+push to master by `.github/workflows/docker-publish.yml`. **The first time that workflow
+runs, go to the package's settings on GitHub and set its visibility to Public** - a package
+pushed with the workflow's default token is created private, and a plain `docker pull` (or
+Portainer without registry credentials configured) gets `denied: requested access to the
+resource is denied` until that is changed. This only has to be done once.
+
 Then create your first account. Registration is **closed by default** so that a stranger who
 finds the URL cannot use your server as free storage. Open it just long enough to register:
 

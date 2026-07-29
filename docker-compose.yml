@@ -1,8 +1,12 @@
 services:
   cloudstream-sync:
-    build: .
-    # Or, once published:
-    # image: ghcr.io/f-e-n-y-x/cloudstream-sync:latest
+    # Published automatically on every push to master by
+    # .github/workflows/docker-publish.yml. This pulls it rather than building locally;
+    # `docker compose pull && docker compose up -d` fetches whatever is newest. To build
+    # from source instead (e.g. you are working on the server itself), comment this out and
+    # uncomment the `build: .` line below.
+    image: ghcr.io/f-e-n-y-x/cloudstream-sync:latest
+    # build: .
     container_name: cloudstream-sync
     restart: unless-stopped
     ports:
@@ -19,8 +23,17 @@ services:
       - "${SYNC_PORT:-9909}:${SYNC_PORT:-9909}"
       - "${SYNC_PORT:-9909}:${SYNC_PORT:-9909}/udp"
     volumes:
-      # The SQLite database. Without this the data is lost when the container is replaced.
-      - ./data:/data
+      # A named volume, not a host bind mount: on a fresh checkout there is nothing at
+      # ./data yet, and Docker creating that directory itself makes it root-owned - which
+      # the container's non-root user then cannot write to. A named volume does not have
+      # that problem, since Docker initialises it from the image's own /data (see
+      # Dockerfile), owned by that same non-root user already.
+      #
+      # If you would rather have the database file directly on the host, a bind mount to an
+      # *existing* directory works fine - just chown it to 65532:65532 first
+      # (`mkdir -p ./data && sudo chown 65532:65532 ./data`), then use `./data:/data` here
+      # instead of the line below.
+      - cloudstream_sync_data:/data
     environment:
       SYNC_ADDR: ":${SYNC_PORT:-9909}"
       SYNC_DB: "/data/cloudstream-sync.db"
@@ -33,3 +46,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+volumes:
+  cloudstream_sync_data:

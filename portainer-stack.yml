@@ -1,8 +1,12 @@
 services:
   cloudstream-sync:
-    build: .
-    # Or, once published:
-    # image: ghcr.io/f-e-n-y-x/cloudstream-sync:latest
+    # Published automatically on every push to master by
+    # .github/workflows/docker-publish.yml. Portainer's "Re-pull image and redeploy" option
+    # on this stack fetches whatever is newest. To build from source instead, comment this
+    # out and uncomment the `build:` line below (pointed at wherever you keep a checkout of
+    # this repo on the host running Portainer/Docker).
+    image: ghcr.io/f-e-n-y-x/cloudstream-sync:latest
+    # build: .
     container_name: cloudstream-sync
     restart: unless-stopped
     ports:
