@@ -299,6 +299,63 @@ func TestSetupKeyRequiresAuthToSet(t *testing.T) {
 	}
 }
 
+func TestPresenceEndToEnd(t *testing.T) {
+	srv, _ := newTestServer(t, true)
+	_, phoneToken := createAccount(t, srv)
+
+	resp, body := do(t, http.MethodPost, srv.URL+"/api/v1/pair", phoneToken, nil)
+	code := body["code"].(string)
+	_, body = do(t, http.MethodPost, srv.URL+"/api/v1/pair/redeem", "",
+		map[string]string{"code": code, "deviceName": "TV"})
+	tvToken := body["token"].(string)
+
+	resp, _ = do(t, http.MethodPut, srv.URL+"/api/v1/presence", phoneToken, map[string]string{
+		"status": `{"title":"Show","playing":true}`,
+	})
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("set presence: %d", resp.StatusCode)
+	}
+
+	_, body = do(t, http.MethodGet, srv.URL+"/api/v1/presence", tvToken, nil)
+	devices, ok := body["devices"].([]any)
+	if !ok || len(devices) != 1 {
+		t.Fatalf("expected the TV to see the phone's presence, got %v", body)
+	}
+	entry := devices[0].(map[string]any)
+	if entry["status"] != `{"title":"Show","playing":true}` {
+		t.Fatalf("unexpected presence entry: %v", entry)
+	}
+
+	// The phone does not see its own presence.
+	_, body = do(t, http.MethodGet, srv.URL+"/api/v1/presence", phoneToken, nil)
+	if devices, ok := body["devices"].([]any); !ok || len(devices) != 0 {
+		t.Fatalf("expected a device to be excluded from its own presence list, got %v", body)
+	}
+
+	resp, _ = do(t, http.MethodDelete, srv.URL+"/api/v1/presence", phoneToken, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("clear presence: %d", resp.StatusCode)
+	}
+	_, body = do(t, http.MethodGet, srv.URL+"/api/v1/presence", tvToken, nil)
+	if devices, ok := body["devices"].([]any); !ok || len(devices) != 0 {
+		t.Fatalf("expected presence to be gone after clearing, got %v", body)
+	}
+}
+
+func TestPresenceRequiresAuth(t *testing.T) {
+	srv, _ := newTestServer(t, true)
+
+	resp, _ := do(t, http.MethodPut, srv.URL+"/api/v1/presence", "", map[string]string{"status": "x"})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected setting presence without auth to be rejected, got %d", resp.StatusCode)
+	}
+
+	resp, _ = do(t, http.MethodGet, srv.URL+"/api/v1/presence", "", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected reading presence without auth to be rejected, got %d", resp.StatusCode)
+	}
+}
+
 func TestInvalidPairCodeRejected(t *testing.T) {
 	srv, _ := newTestServer(t, true)
 	resp, _ := do(t, http.MethodPost, srv.URL+"/api/v1/pair/redeem", "",

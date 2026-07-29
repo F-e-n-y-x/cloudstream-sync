@@ -124,6 +124,21 @@ CREATE TABLE IF NOT EXISTS pair_codes (
     expires_at INTEGER NOT NULL,
     redeemed   INTEGER NOT NULL DEFAULT 0
 );
+
+-- What a device is playing right now, if anything - not a synced record, deliberately not
+-- part of the records table above: this is live, ephemeral status, not history a device
+-- should ever page through or need to resolve a conflict on. One row per device, always
+-- overwritten in place, and expected to go stale within a couple of minutes of that device
+-- closing or losing network, which GetPresence's freshness window (not this schema) is what
+-- enforces.
+CREATE TABLE IF NOT EXISTS presence (
+    device_id  TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    status     TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_presence_account ON presence(account_id);
 `
 
 // Open opens the database at path and applies the schema.
@@ -332,6 +347,69 @@ func (s *Store) RemoveDevice(ctx context.Context, accountID, deviceID string) er
 		return ErrNotFound
 	}
 	return nil
+}
+
+// PresenceFreshness is how long ago a device's presence must have been set for GetPresence to
+// still return it. A device that closed, backgrounded the player, or lost its network
+// connection stops updating this, and without a window like this it would look like it was
+// still playing whatever it last reported forever.
+const PresenceFreshness = 90 * time.Second
+
+// DevicePresence is what another device on the account is doing right now, if anything.
+type DevicePresence struct {
+	DeviceID   string `json:"deviceId"`
+	DeviceName string `json:"deviceName"`
+	// Status is opaque, the same way a Record's Value is: whatever the app wants to report
+	// (title, position, whether it is actually playing or paused), which this server never
+	// parses.
+	Status    string `json:"status"`
+	UpdatedAt int64  `json:"updatedAt"`
+}
+
+// SetPresence records what a device is playing right now, overwriting whatever it last
+// reported. There is no history here, unlike records - only ever the current status.
+func (s *Store) SetPresence(ctx context.Context, accountID, deviceID, status string) error {
+	now := time.Now().UnixMilli()
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO presence (device_id, account_id, status, updated_at) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(device_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at`,
+		deviceID, accountID, status, now)
+	return err
+}
+
+// ClearPresence removes a device's status, e.g. when it stops playing. Distinct from an
+// empty-string SetPresence so "explicitly stopped" and "reported an empty status string" are
+// not the same on-disk state, even though GetPresence's caller sees them identically.
+func (s *Store) ClearPresence(ctx context.Context, deviceID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM presence WHERE device_id = ?`, deviceID)
+	return err
+}
+
+// GetPresence returns what every other device on the account is playing right now, excluding
+// the caller's own and anything older than PresenceFreshness.
+func (s *Store) GetPresence(ctx context.Context, accountID, excludeDeviceID string) ([]DevicePresence, error) {
+	cutoff := time.Now().Add(-PresenceFreshness).UnixMilli()
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT presence.device_id, devices.name, presence.status, presence.updated_at
+		 FROM presence
+		 JOIN devices ON devices.id = presence.device_id
+		 WHERE presence.account_id = ? AND presence.device_id != ? AND presence.updated_at >= ?
+		 ORDER BY presence.updated_at DESC`,
+		accountID, excludeDeviceID, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]DevicePresence, 0, 4)
+	for rows.Next() {
+		var p DevicePresence
+		if err := rows.Scan(&p.DeviceID, &p.DeviceName, &p.Status, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // CreatePairCode issues a short-lived code that another device can redeem to join.

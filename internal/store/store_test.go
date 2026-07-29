@@ -462,6 +462,161 @@ func TestSetupKeyIsScopedToItsAccount(t *testing.T) {
 	}
 }
 
+func TestPresenceSetAndGet(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	accountID, phone, _, err := st.CreateAccount(ctx, "Phone")
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	tv, _, err := st.AddDevice(ctx, accountID, "TV")
+	if err != nil {
+		t.Fatalf("add device: %v", err)
+	}
+
+	if err := st.SetPresence(ctx, accountID, phone.ID, `{"title":"Show","playing":true}`); err != nil {
+		t.Fatalf("set presence: %v", err)
+	}
+
+	// The TV should see the phone playing something.
+	fromTV, err := st.GetPresence(ctx, accountID, tv.ID)
+	if err != nil {
+		t.Fatalf("get presence from TV: %v", err)
+	}
+	if len(fromTV) != 1 || fromTV[0].DeviceID != phone.ID || fromTV[0].Status != `{"title":"Show","playing":true}` {
+		t.Fatalf("expected TV to see the phone's presence, got %+v", fromTV)
+	}
+
+	// A device does not see its own presence in its own list.
+	fromPhone, err := st.GetPresence(ctx, accountID, phone.ID)
+	if err != nil {
+		t.Fatalf("get presence from phone: %v", err)
+	}
+	if len(fromPhone) != 0 {
+		t.Fatalf("expected a device to be excluded from its own presence list, got %+v", fromPhone)
+	}
+}
+
+func TestPresenceUpsertOverwritesRatherThanDuplicating(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	accountID, phone, _, err := st.CreateAccount(ctx, "Phone")
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	tv, _, err := st.AddDevice(ctx, accountID, "TV")
+	if err != nil {
+		t.Fatalf("add device: %v", err)
+	}
+
+	if err := st.SetPresence(ctx, accountID, phone.ID, "first"); err != nil {
+		t.Fatalf("set presence: %v", err)
+	}
+	if err := st.SetPresence(ctx, accountID, phone.ID, "second"); err != nil {
+		t.Fatalf("set presence again: %v", err)
+	}
+
+	got, err := st.GetPresence(ctx, accountID, tv.ID)
+	if err != nil {
+		t.Fatalf("get presence: %v", err)
+	}
+	if len(got) != 1 || got[0].Status != "second" {
+		t.Fatalf("expected exactly one row with the latest status, got %+v", got)
+	}
+}
+
+func TestPresenceClear(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	accountID, phone, _, err := st.CreateAccount(ctx, "Phone")
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	tv, _, err := st.AddDevice(ctx, accountID, "TV")
+	if err != nil {
+		t.Fatalf("add device: %v", err)
+	}
+
+	if err := st.SetPresence(ctx, accountID, phone.ID, "playing"); err != nil {
+		t.Fatalf("set presence: %v", err)
+	}
+	if err := st.ClearPresence(ctx, phone.ID); err != nil {
+		t.Fatalf("clear presence: %v", err)
+	}
+
+	got, err := st.GetPresence(ctx, accountID, tv.ID)
+	if err != nil {
+		t.Fatalf("get presence: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected no presence after clearing, got %+v", got)
+	}
+}
+
+// A device that stopped updating its presence (closed, backgrounded, lost network) must not
+// look like it is still playing something indefinitely.
+func TestPresenceExcludesStaleEntries(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	accountID, phone, _, err := st.CreateAccount(ctx, "Phone")
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	tv, _, err := st.AddDevice(ctx, accountID, "TV")
+	if err != nil {
+		t.Fatalf("add device: %v", err)
+	}
+
+	staleTime := time.Now().Add(-2 * PresenceFreshness).UnixMilli()
+	if _, err := st.db.ExecContext(ctx,
+		`INSERT INTO presence (device_id, account_id, status, updated_at) VALUES (?, ?, ?, ?)`,
+		phone.ID, accountID, "old", staleTime); err != nil {
+		t.Fatalf("insert stale presence: %v", err)
+	}
+
+	got, err := st.GetPresence(ctx, accountID, tv.ID)
+	if err != nil {
+		t.Fatalf("get presence: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected a stale presence row to be excluded, got %+v", got)
+	}
+}
+
+func TestPresenceIsScopedToItsAccount(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	accountA, phoneA, _, err := st.CreateAccount(ctx, "A-Phone")
+	if err != nil {
+		t.Fatalf("create account A: %v", err)
+	}
+	accountB, _, _, err := st.CreateAccount(ctx, "B-Phone")
+	if err != nil {
+		t.Fatalf("create account B: %v", err)
+	}
+	bOther, _, err := st.AddDevice(ctx, accountB, "B-TV")
+	if err != nil {
+		t.Fatalf("add device: %v", err)
+	}
+
+	if err := st.SetPresence(ctx, accountA, phoneA.ID, "playing"); err != nil {
+		t.Fatalf("set presence: %v", err)
+	}
+
+	got, err := st.GetPresence(ctx, accountB, bOther.ID)
+	if err != nil {
+		t.Fatalf("get presence: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("account B must not see account A's presence, got %+v", got)
+	}
+}
+
 // A token from one account must not be able to touch another account's devices.
 func TestRemoveDeviceIsScopedToAccount(t *testing.T) {
 	ctx := context.Background()

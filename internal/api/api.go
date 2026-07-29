@@ -59,6 +59,9 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/v1/records", s.authenticated(s.handleGetRecords))
 	mux.Handle("POST /api/v1/records", s.authenticated(s.handlePutRecords))
 	mux.Handle("GET /api/v1/status", s.authenticated(s.handleStatus))
+	mux.Handle("PUT /api/v1/presence", s.authenticated(s.handleSetPresence))
+	mux.Handle("DELETE /api/v1/presence", s.authenticated(s.handleClearPresence))
+	mux.Handle("GET /api/v1/presence", s.authenticated(s.handleGetPresence))
 
 	return s.withRecovery(s.withLogging(mux))
 }
@@ -327,6 +330,42 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request, device sto
 		"deviceName": device.Name,
 		"cursor":     seq,
 	})
+}
+
+type setPresenceRequest struct {
+	Status string `json:"status"`
+}
+
+func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request, device store.Device) {
+	var req setPresenceRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := s.store.SetPresence(r.Context(), device.AccountID, device.ID, req.Status); err != nil {
+		s.log.Error("set presence", "err", err)
+		writeError(w, http.StatusInternalServerError, "could not set presence")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleClearPresence(w http.ResponseWriter, r *http.Request, device store.Device) {
+	if err := s.store.ClearPresence(r.Context(), device.ID); err != nil {
+		s.log.Error("clear presence", "err", err)
+		writeError(w, http.StatusInternalServerError, "could not clear presence")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleGetPresence(w http.ResponseWriter, r *http.Request, device store.Device) {
+	presence, err := s.store.GetPresence(r.Context(), device.AccountID, device.ID)
+	if err != nil {
+		s.log.Error("get presence", "err", err)
+		writeError(w, http.StatusInternalServerError, "could not read presence")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"devices": presence})
 }
 
 type recordsResponse struct {
